@@ -1,0 +1,115 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Primitive Definitions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isVerifiedUser() {
+      return request.auth.token.email_verified == true;
+    }
+
+    // Identity functions relying on DB lookups (Tier 1/2)
+    function getUserData(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    function isEducator() {
+      return isSignedIn() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'educator';
+    }
+
+    // 1. User Profiles
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.keys().hasAll(['uid', 'name', 'email', 'role']) &&
+               data.keys().size() <= 12 &&
+               data.uid == userId &&
+               data.uid == request.auth.uid &&
+               data.name is string && data.name.size() <= 100 &&
+               data.email is string && data.email.size() <= 100 &&
+               data.role in ['student', 'educator'] &&
+               (data.get('institution', '') is string && data.get('institution', '').size() <= 200) &&
+               (data.get('country', '') is string && data.get('country', '').size() <= 100) &&
+               (data.get('course', '') is string && data.get('course', '').size() <= 100) &&
+               (data.get('profileComplete', false) is bool);
+      }
+
+      allow get: if isSignedIn();
+      allow list: if isSignedIn() && isEducator();
+      allow create: if isSignedIn() && isOwner(userId) && isValidUser(incoming());
+      allow update: if isSignedIn() && isOwner(userId) && isValidUser(incoming()) &&
+                   incoming().role == existing().role && // Role immutability for users
+                   incoming().uid == existing().uid;
+    }
+
+    // 2. Achievements
+    match /achievements/{achievementId} {
+      function isValidAchievement(data) {
+        return data.keys().hasAll(['userId', 'title', 'category', 'date', 'institution', 'status']) &&
+               data.keys().size() <= 11 &&
+               data.userId is string && data.userId.size() <= 128 &&
+               data.title is string && data.title.size() <= 200 &&
+               data.category in ['Academic', 'Skill', 'Extracurricular', 'Work Experience'] &&
+               data.date is string && data.date.size() <= 20 &&
+               data.institution is string && data.institution.size() <= 200 &&
+               data.status in ['pending', 'verified', 'rejected'];
+      }
+
+      function isAchievementOwner() {
+        return isOwner(existing().userId);
+      }
+
+      allow get: if isSignedIn() && (isAchievementOwner() || isEducator());
+      allow list: if isSignedIn() && (
+        (resource.data.userId == request.auth.uid) || 
+        isEducator()
+      );
+
+      allow create: if isSignedIn() && isVerifiedUser() && 
+                    isValidAchievement(incoming()) && 
+                    incoming().userId == request.auth.uid && 
+                    incoming().status == 'pending'; // Students can only create pending
+
+      allow update: if isSignedIn() && (
+        // Action: Student Edit (Only if still pending)
+        (isAchievementOwner() && existing().status == 'pending' && 
+         isValidAchievement(incoming()) && 
+         incoming().userId == existing().userId &&
+         incoming().status == 'pending' &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'category', 'date', 'institution', 'evidenceUrl'])) ||
+        
+        // Action: Educator Verify
+        (isEducator() && 
+         isValidAchievement(incoming()) && 
+         incoming().userId == existing().userId &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['status', 'verifiedBy', 'verificationDate']))
+      );
+
+      allow delete: if isSignedIn() && isAchievementOwner() && existing().status == 'pending';
+    }
+  }
+}

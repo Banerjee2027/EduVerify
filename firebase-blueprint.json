@@ -1,0 +1,51 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Stores student and educator profile information.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "educator", "admin"] },
+        "institution": { "type": "string" },
+        "course": { "type": "string" },
+        "country": { "type": "string" },
+        "graduationYear": { "type": "number" },
+        "avatar": { "type": "string" },
+        "profileComplete": { "type": "boolean" }
+      },
+      "required": ["uid", "name", "email", "role"]
+    },
+    "Achievement": {
+      "title": "Achievement",
+      "description": "Represents an academic record or skill milestone.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string", "enum": ["Academic", "Skill", "Extracurricular", "Work Experience"] },
+        "date": { "type": "string" },
+        "institution": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "verified", "rejected"] },
+        "verifiedBy": { "type": "string" },
+        "verificationDate": { "type": "string" },
+        "evidenceUrl": { "type": "string" }
+      },
+      "required": ["userId", "title", "category", "date", "institution", "status"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profiles indexed by their Firebase Auth UID."
+    },
+    "achievements/{achievementId}": {
+      "schema": "Achievement",
+      "description": "Global collection of all achievements."
+    }
+  }
+}
